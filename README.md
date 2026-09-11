@@ -33,9 +33,34 @@ For any other layout, point `SAWYER_CONTROL_DIR` at your clone:
 export SAWYER_CONTROL_DIR=/path/to/sawyer-control
 ```
 
-There is nothing else to install by hand. The launcher creates `.venv`,
-installs both packages in editable mode, installs the web dependencies and
-builds the browser application on first run. Later starts reuse all of it.
+There is no separate setup script: the launcher `./sawyer-operations` is it.
+On first run it creates `.venv`, installs `sawyer-control` and this package
+into it in editable mode, installs the web dependencies with `npm ci` and
+builds the browser application. Later starts reuse all of it and install
+nothing, so the first start is the slow one.
+
+`SAWYER_CONTROL_DIR` is read only at that install step. Once the packages
+import, the launcher skips installation entirely, and changing the variable has
+no effect until you delete `.venv` or reinstall by hand.
+
+### Into an environment you already have
+
+The only real requirement is that `sawyer_control` is importable by whichever
+interpreter runs this code. `sawyer-control` is not on PyPI, so install both
+from source **in one command** — that way the editable clone satisfies this
+package's `sawyer-control` requirement instead of pip searching PyPI and
+failing:
+
+```bash
+python -m pip install -e /path/to/sawyer-control -e /path/to/sawyer-operations
+python -m pip install pytest openpyxl   # tests, and .xlsx import
+cd web && npm ci && npm run build
+```
+
+Environments do not stay in sync with each other. If you use both the
+launcher's `.venv` and your own environment, a change to `sawyer-control` that
+needs reinstalling — a new dependency, regenerated protobuf stubs — has to be
+reinstalled in each one.
 
 ## Run
 
@@ -45,8 +70,15 @@ Start the robot bridge first, from your `sawyer-control` clone:
 ./sawyer-control up
 ```
 
-That step needs Docker and a connected robot; see that project's README. Then
-start the workspace from this one:
+That step needs Docker and a connected robot; see that project's README.
+
+**This project never starts, stops or checks the bridge.** No launcher here
+runs `sawyer-control up`, and none of them touches Docker or looks at the gRPC
+port. Starting the workspace below with no bridge running succeeds; the panel
+simply reports no connection and the model holds its last pose. Start the
+bridge whenever you need live state or motion, before or after the workspace.
+
+Then start the workspace from this one:
 
 ```bash
 ./sawyer-operations
@@ -68,7 +100,7 @@ Useful environment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SAWYER_CONTROL_DIR` | `../sawyer-control` | Where to install the control package from |
+| `SAWYER_CONTROL_DIR` | `../sawyer-control` | Where to install the control package from, at install time only |
 | `SAWYER_ADDRESS` | `127.0.0.1:50051` | The gRPC bridge to connect to |
 | `SAWYER_OPERATIONS_DATA` | `~/.local/share/sawyer-operations` | Where trajectories and recordings are stored |
 
