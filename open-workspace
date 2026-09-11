@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if ! command -v chromium >/dev/null; then
+    echo 'Chromium is not installed. Open http://127.0.0.1:8001 in a browser with WebGL 2 enabled.' >&2
+    exit 1
+fi
+for attempt in {1..60}; do
+    if "$ROOT/.venv/bin/python" -c 'import json,urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8001/api/health",timeout=1))["app"] == "sawyer-operations"' 2>/dev/null; then
+        exec chromium --app=http://127.0.0.1:8001
+    fi
+    sleep .5
+done
+echo 'Workspace did not start at http://127.0.0.1:8001' >&2
+exit 1
