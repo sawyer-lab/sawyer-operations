@@ -12,8 +12,8 @@ from sawyer_control.types import ControlMode, JointCommandSample, JointVector
 
 ARM_JOINTS = tuple(f'right_j{i}' for i in range(7))
 SCHEMA_VERSION = 3
-RATE_HZ = 100.0      # The robot's command rate, and the default for every trajectory.
-MIN_RATE_HZ = 1.0    # Below this a motion is too sparse to command.
+COMMAND_RATE_HZ = 100.0  # The robot's command rate, and the highest a trajectory may use.
+MIN_RATE_HZ = 1.0        # Below this a motion is too sparse to command.
 REQUIRED_FIELDS = {ControlMode.POSITION: ('position',), ControlMode.VELOCITY: ('velocity',),
                    ControlMode.TORQUE: ('effort',),
                    ControlMode.TRAJECTORY: ('position', 'velocity', 'acceleration')}
@@ -25,14 +25,14 @@ UNITS = {'position': 'rad', 'velocity': 'rad/s', 'effort': 'Nm', 'acceleration':
 class Trajectory:
     mode: ControlMode
     samples: tuple[JointCommandSample, ...]
-    rate_hz: float = RATE_HZ
+    rate_hz: float
 
     def __post_init__(self):
         object.__setattr__(self, 'mode', ControlMode(self.mode))
         object.__setattr__(self, 'rate_hz', float(self.rate_hz))
-        if not MIN_RATE_HZ <= self.rate_hz <= RATE_HZ:
-            raise ValueError(f'rate_hz must be between {MIN_RATE_HZ:g} and {RATE_HZ:g}; '
-                             f'the robot is commanded at {RATE_HZ:g} Hz')
+        if not MIN_RATE_HZ <= self.rate_hz <= COMMAND_RATE_HZ:
+            raise ValueError(f'rate_hz must be between {MIN_RATE_HZ:g} and {COMMAND_RATE_HZ:g}; '
+                             f'the robot is commanded at {COMMAND_RATE_HZ:g} Hz')
         required = REQUIRED_FIELDS
         samples = tuple(self.samples)
         if not samples:
@@ -60,8 +60,7 @@ class Trajectory:
 
     @classmethod
     def from_dict(cls, value):
-        allowed = {'schema_version', 'mode', 'joint_names', 'units', 'samples'}
-        optional = {'rate_hz'}
+        allowed = {'schema_version', 'mode', 'rate_hz', 'joint_names', 'units', 'samples'}
         if not isinstance(value, dict):
             raise ValueError(f'Required trajectory fields: {sorted(allowed)}')
         if value.get('schema_version') != SCHEMA_VERSION:
@@ -70,8 +69,8 @@ class Trajectory:
                              f'stored under.')
         if not allowed.issubset(value):
             raise ValueError(f'Required trajectory fields: {sorted(allowed)}')
-        if set(value) - allowed - optional:
-            raise ValueError(f'Unknown trajectory fields: {set(value) - allowed - optional}')
+        if set(value) - allowed:
+            raise ValueError(f'Unknown trajectory fields: {set(value) - allowed}')
         if tuple(value.get('joint_names', ())) != ARM_JOINTS:
             raise ValueError('joint_names must be right_j0 through right_j6 in order')
         if value.get('units') != UNITS:
@@ -85,7 +84,7 @@ class Trajectory:
             if set(row) - set(FIELDS):
                 raise ValueError(f'Unknown sample fields: {set(row) - set(FIELDS)}')
             samples.append(JointCommandSample(**{key: JointVector(val) for key, val in row.items()}))
-        return cls(ControlMode(value['mode']), tuple(samples), value.get('rate_hz', RATE_HZ))
+        return cls(ControlMode(value['mode']), tuple(samples), value['rate_hz'])
 
     @classmethod
     def load(cls, path):
@@ -96,7 +95,7 @@ class Trajectory:
             json.dump(self.to_dict(), stream, allow_nan=False)
 
     @classmethod
-    def from_csv(cls, text, *, mode, rate_hz=RATE_HZ):
+    def from_csv(cls, text, *, mode, rate_hz):
         """Columns are position.right_j0, velocity.right_j0, etc.; SI units only."""
         reader = csv.DictReader(io.StringIO(text))
         columns = set(reader.fieldnames or ())

@@ -1,6 +1,7 @@
 {
  "schema_version": 3,
  "mode": "position",
+ "rate_hz": 100.0,
  "joint_names": [
   "right_j0",
   "right_j1",

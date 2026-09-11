@@ -1,8 +1,8 @@
 """Mapping of foreign joint tables onto canonical trajectories.
 
 Columns are mapped explicitly; nothing is derived, resampled or repaired. The
-source trajectory is assumed correct and uniformly sampled. The rate defaults
-to the robot's 100 Hz command rate; Trajectory accepts 1 Hz to 100 Hz.
+source trajectory is assumed correct and uniformly sampled at the rate the
+caller states. The rate is always explicit; Trajectory accepts 1 Hz to 100 Hz.
 """
 from __future__ import annotations
 
@@ -13,7 +13,8 @@ from pathlib import Path
 
 from sawyer_control.types import ControlMode
 
-from .trajectories import ARM_JOINTS, FIELDS, RATE_HZ, SCHEMA_VERSION, UNITS, Trajectory
+from .trajectories import (ARM_JOINTS, COMMAND_RATE_HZ, FIELDS, MIN_RATE_HZ, SCHEMA_VERSION,
+                           UNITS, Trajectory)
 
 MODE_FIELDS = {ControlMode.POSITION: ('position',), ControlMode.VELOCITY: ('velocity',),
                ControlMode.TRAJECTORY: ('position', 'velocity', 'acceleration'),
@@ -109,7 +110,7 @@ def check_limits(samples):
                     f'[{low}, {high}]. Check the declared units and the mapped column.')
 
 
-def to_trajectory(rows, mapping, *, mode, units, rate_hz=RATE_HZ):
+def to_trajectory(rows, mapping, *, mode, units, rate_hz):
     """Build a trajectory from data rows and a field to seven-column-index mapping."""
     mode = ControlMode(mode)
     fields = MODE_FIELDS[mode]
@@ -141,19 +142,20 @@ def to_trajectory(rows, mapping, *, mode, units, rate_hz=RATE_HZ):
                                  'units': UNITS, 'samples': samples})
 
 
-def save_profile(path, *, mode, units, mapping, headers=None):
+def save_profile(path, *, mode, units, rate_hz, mapping, headers=None):
     """Record answers so the next table in the same layout needs no prompts."""
     columns = {field: [headers[column] if headers else column for column in indices]
                for field, indices in mapping.items()}
     Path(path).write_text(json.dumps(
-        {'schema_version': 1, 'mode': ControlMode(mode).value, 'units': units,
-         'columns': columns}, indent=2) + '\n')
+        {'schema_version': 2, 'mode': ControlMode(mode).value, 'units': units,
+         'rate_hz': float(rate_hz), 'columns': columns}, indent=2) + '\n')
 
 
 def load_profile(path):
     value = json.loads(Path(path).read_text())
-    if value.get('schema_version') != 1 or set(value) != {'schema_version', 'mode', 'units', 'columns'}:
-        raise ValueError('Expected an import profile with schema_version 1')
+    if value.get('schema_version') != 2 or set(value) != {'schema_version', 'mode', 'units',
+                                                          'rate_hz', 'columns'}:
+        raise ValueError('Expected an import profile with schema_version 2')
     return value
 
 
@@ -208,7 +210,7 @@ def _write_xlsx(path, rows):
     book.save(path)
 
 
-def import_table(path, *, mode, units, mapping=None, rate_hz=RATE_HZ):
+def import_table(path, *, mode, units, rate_hz, mapping=None):
     """Non-interactive import for scripts. Columns are matched by alias when not given."""
     headers, rows = read_table(path)
     fields = MODE_FIELDS[ControlMode(mode)]

@@ -200,9 +200,9 @@ for example — becomes a canonical trajectory with:
 .venv/bin/python -m sawyer_operations import motion.xlsx -o motion.json
 ```
 
-It asks for the control mode, the units of the angle columns, and one column
-per joint, suggesting matches by name. Rows are consumed in order at 100 Hz
-unless `--rate` says otherwise, and any time column is ignored. Nothing is derived, resampled or repaired, and
+It asks for the control mode, the units of the angle columns, the sample rate,
+and one column per joint, suggesting matches by name. The rate is never
+assumed, and any time column is ignored. Nothing is derived, resampled or repaired, and
 positions outside the arm's joint limits are refused. Reading `.xlsx` needs the
 `xlsx` extra; CSV needs nothing. `python -m sawyer_operations export` writes a
 flat table back out. The full description is in the operations guide below.

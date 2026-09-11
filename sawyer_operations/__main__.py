@@ -7,9 +7,9 @@ import sys
 
 from sawyer_control.types import ControlMode
 
-from .interop import (MODE_FIELDS, RATE_HZ, export, load_profile, normalize, read_table,
+from .interop import (MODE_FIELDS, export, load_profile, normalize, read_table,
                       resolve, save_profile, suggest_mapping, to_trajectory)
-from .trajectories import ARM_JOINTS, MIN_RATE_HZ, Trajectory
+from .trajectories import ARM_JOINTS, COMMAND_RATE_HZ, MIN_RATE_HZ, Trajectory
 
 MODES = tuple(mode.value for mode in MODE_FIELDS)
 
@@ -40,6 +40,19 @@ def _choose_units():
         if answer in ('deg', 'rad'):
             return answer
         print("Answer 'deg' or 'rad'. Nothing is guessed; a wrong answer commands wrong motion.")
+
+
+def _choose_rate():
+    while True:
+        answer = _ask(f'Samples per second? [{MIN_RATE_HZ:g}-{COMMAND_RATE_HZ:g}]\n> ')
+        try:
+            rate = float(answer)
+        except ValueError:
+            rate = None
+        if rate is not None and MIN_RATE_HZ <= rate <= COMMAND_RATE_HZ:
+            return rate
+        print(f'Answer with a number between {MIN_RATE_HZ:g} and {COMMAND_RATE_HZ:g}. '
+              f'Nothing is assumed; the rows carry no rate of their own.')
 
 
 def _show_columns(headers, rows):
@@ -92,6 +105,11 @@ def _import(args):
     units = args.units or (profile or {}).get('units')
     if units is None:
         units = _choose_units() if any(field != 'effort' for field in fields) else 'rad'
+    rate_hz = args.rate or (profile or {}).get('rate_hz')
+    if rate_hz is None:
+        if args.auto or not sys.stdin.isatty():
+            raise ValueError('Pass --rate: the sample rate is never assumed')
+        rate_hz = _choose_rate()
     if profile:
         mapping = resolve(profile, headers)
         if set(mapping) != set(fields):
@@ -110,7 +128,7 @@ def _import(args):
         else:
             names = _show_columns(headers, rows)
             mapping = _map_columns(names, fields, suggested)
-    trajectory = to_trajectory(rows, mapping, mode=mode, units=units, rate_hz=args.rate)
+    trajectory = to_trajectory(rows, mapping, mode=mode, units=units, rate_hz=rate_hz)
     trajectory.save(args.output)
     conversion = 'deg -> rad' if units == 'deg' else 'rad'
     print(f'\nRead {len(rows)} rows, {trajectory.rate_hz:g} Hz, {trajectory.duration_s:.2f} s, {conversion}.')
@@ -118,7 +136,8 @@ def _import(args):
                                  for field, columns in mapping.items()))
     print(f'Wrote {args.output}')
     if args.save_profile:
-        save_profile(args.save_profile, mode=mode, units=units, mapping=mapping, headers=headers)
+        save_profile(args.save_profile, mode=mode, units=units, rate_hz=rate_hz,
+                     mapping=mapping, headers=headers)
         print(f'Wrote {args.save_profile}')
 
 
@@ -130,8 +149,8 @@ def _export(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog='sawyer-traj', description='Map joint tables to and from canonical trajectories. '
-        f'Sampling is uniform at {RATE_HZ:g} Hz unless --rate says otherwise; any time '
-        f'column is ignored.')
+        'Sampling is uniform at the rate you give; it is never assumed, and any time '
+        'column is ignored.')
     commands = parser.add_subparsers(dest='command', required=True)
 
     importer = commands.add_parser('import', help='map a csv or xlsx table into trajectory JSON')
@@ -139,9 +158,9 @@ def main(argv=None):
     importer.add_argument('-o', '--output', required=True, help='trajectory JSON to create')
     importer.add_argument('--mode', choices=MODES, help='skip the mode prompt')
     importer.add_argument('--units', choices=('deg', 'rad'), help='skip the units prompt')
-    importer.add_argument('--rate', type=float, default=RATE_HZ,
-                          help=f'samples per second, {MIN_RATE_HZ:g} to {RATE_HZ:g} '
-                               f'(default {RATE_HZ:g})')
+    importer.add_argument('--rate', type=float,
+                          help=f'samples per second, {MIN_RATE_HZ:g} to {COMMAND_RATE_HZ:g}; '
+                               f'skips the prompt and is required with --auto')
     importer.add_argument('--auto', action='store_true',
                           help='accept every alias-matched column without prompting')
     importer.add_argument('--profile', help='replay a saved mapping instead of prompting')

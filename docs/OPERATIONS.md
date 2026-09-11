@@ -121,11 +121,13 @@ right_j0 through right_j6. Modes map directly to the existing control modes:
 
 Vectors have seven finite numbers. Units are radians, rad/s, Nm and rad/s^2.
 
-**The rate defaults to the robot's 100 Hz command rate and is bounded to
-1-100 Hz.** `rate_hz` is the last argument of `Trajectory` and may be omitted;
-anything outside that range, including a non-finite value, is rejected on
-construction, so an out-of-range rate cannot reach the executor. It is optional
-in the JSON too and defaults to 100 when absent. Duration is
+**The rate is always explicit and bounded to 1-100 Hz.** `rate_hz` is a
+required argument of `Trajectory` and a required field in the JSON: there is no
+default, because rows carry no rate of their own and a wrong assumption runs
+the motion at the wrong speed. The robot is commanded at
+`COMMAND_RATE_HZ = 100`, which is the maximum; `MIN_RATE_HZ = 1` is the
+minimum. Anything outside that range, including a non-finite value, is rejected
+on construction, so an out-of-range rate cannot reach the executor. Duration is
 sample_count/rate_hz.
 
 A trajectory carries no name. It is `Trajectory(mode, samples)`, and the
@@ -145,8 +147,8 @@ geometric preview.
 
 CSV columns use `position.right_j0` through `position.right_j6`, and the same
 pattern for velocity, effort and acceleration. Supply the mode explicitly in
-`Trajectory.from_csv(text, mode=..., rate_hz=...)` or the UI import settings,
-which default to 100 Hz. The
+`Trajectory.from_csv(text, mode=..., rate_hz=...)` or the UI import settings.
+The browser refuses a CSV until a rate is given. The
 format does not accept arbitrary time columns. The last sample's time is
 (sample_count-1)/100 seconds.
 
@@ -154,16 +156,16 @@ format does not accept arbitrary time columns. The last sample's time is
 
 `sawyer-traj` maps a colleague's joint table onto the canonical format. It maps
 columns and converts units; it derives nothing. Rows are consumed in order at
-100 Hz unless `--rate` says otherwise, so a time column is listed but ignored.
-A table at another rate needs that rate passed; nothing is inferred from `t`.
+the rate you state, so a time column is listed but ignored. Nothing is inferred
+from `t`, and no rate is assumed.
 
 ```bash
 python -m sawyer_operations import motion.xlsx -o motion.json
 ```
 
-It asks for the control mode, then the units of the angle columns, then one
-column per joint. It never asks for a rate; pass `--rate` for a table that is
-not at 100 Hz. Answer with a column number or name; Enter accepts the
+It asks for the control mode, the units of the angle columns, the sample rate,
+and then one column per joint. `--rate` skips that question and is required
+with `--auto` or when stdin is not a terminal. Answer with a column number or name; Enter accepts the
 suggestion. Aliases cover `q0`/`dq0`/`ddq0`/`tau0` spellings, `J_1` style
 one-based headers, headerless files (answer with indices), and semicolon files
 with comma decimals. Modes ask for the columns they require: position and
@@ -185,7 +187,8 @@ python -m sawyer_operations import motion.csv -o motion.json --mode position --u
 python -m sawyer_operations export motion.json -o motion.csv --units deg
 ```
 
-Add `--save-profile colleague.json` to record the answers for reuse. Reading and
+Add `--save-profile colleague.json` to record the answers, including the rate,
+for reuse. Reading and
 writing `.xlsx` needs `openpyxl`; the `.csv` path has no extra dependency.
 
 For scripts, the same mapping is available without prompts:
@@ -236,7 +239,7 @@ Interactive API documentation is at <http://127.0.0.1:8001/docs>.
 
 - GET /api/workspace: catalog, selection, recording and events.
 - POST /api/trajectories: canonical trajectory JSON.
-- POST /api/trajectories/csv: text, mode and an optional rate_hz.
+- POST /api/trajectories/csv: text, mode and rate_hz.
 - GET /api/trajectories/{id}: full trajectory.
 - POST /api/preview: `{ "id": "..." }`, or null to clear.
 - POST /api/robot/command: `{ "action": "stop" }`, enable, disable, reset, open or close.

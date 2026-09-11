@@ -5,7 +5,7 @@ from typing import Literal
 
 from sawyer_control.types import ControlMode
 
-from .trajectories import RATE_HZ, Trajectory
+from .trajectories import Trajectory
 
 router = APIRouter(prefix='/api')
 
@@ -33,7 +33,7 @@ class Command(Input):
 class CSVTrajectory(Input):
     text: str
     mode: ControlMode
-    rate_hz: float = RATE_HZ
+    rate_hz: float
 
 
 @router.get('/workspace')

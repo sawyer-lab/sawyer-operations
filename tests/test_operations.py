@@ -12,10 +12,10 @@ from sawyer_operations import ControlMode, Operations, Robot, Trajectory, read_r
 from sawyer_operations.server import app
 
 
-def trajectory(mode=ControlMode.POSITION):
+def trajectory(mode=ControlMode.POSITION, rate_hz=100):
     return Trajectory(mode, (
         JointCommandSample(position=JointVector([0]*7)),
-        JointCommandSample(position=JointVector([.1]*7))))
+        JointCommandSample(position=JointVector([.1]*7))), rate_hz)
 
 
 def api():
@@ -32,16 +32,17 @@ def test_validation_and_csv():
     with pytest.raises(ValueError):
         trajectory(ControlMode.TRAJECTORY)
     text = ','.join('position.right_j'+str(i) for i in range(7))+'\n'+','.join(['0']*7)
-    assert Trajectory.from_csv(text, mode=ControlMode.POSITION).summary()['samples'] == 1
+    assert Trajectory.from_csv(text, mode=ControlMode.POSITION, rate_hz=100).summary()['samples'] == 1
     with pytest.raises(ValueError):
-        Trajectory.from_csv('j0,j1\n0,0', mode=ControlMode.POSITION)
+        Trajectory.from_csv('j0,j1\n0,0', mode=ControlMode.POSITION, rate_hz=100)
     stale = {**trajectory().to_dict(), 'schema_version': 2, 'name': 'Example'}
     with pytest.raises(ValueError, match='schema_version 3'):
         Trajectory.from_dict(stale)
 
 
-def test_rate_defaults_to_the_command_rate_and_is_bounded():
-    assert trajectory().rate_hz == 100.0
+def test_rate_is_explicit_and_bounded():
+    with pytest.raises(TypeError):
+        Trajectory(ControlMode.POSITION, trajectory().samples)
     slow = Trajectory(ControlMode.POSITION, trajectory().samples, 1)
     assert slow.rate_hz == 1.0 and slow.duration_s == 2.0
     assert Trajectory.from_dict(slow.to_dict()).rate_hz == 1.0
@@ -49,7 +50,8 @@ def test_rate_defaults_to_the_command_rate_and_is_bounded():
         with pytest.raises(ValueError, match='rate_hz must be between'):
             Trajectory(ControlMode.POSITION, trajectory().samples, bad)
     without = {key: value for key, value in trajectory().to_dict().items() if key != 'rate_hz'}
-    assert Trajectory.from_dict(without).rate_hz == 100.0
+    with pytest.raises(ValueError, match='Required trajectory fields'):
+        Trajectory.from_dict(without)
 
 
 def test_preview_is_passive_and_catalog_survives_restart(tmp_path):
@@ -111,7 +113,7 @@ def test_stream_cancellation_stops_future_publication_and_records_commands(tmp_p
         ops = Operations(bridge, tmp_path)
         ops.telemetry({'timestamp_s': 1, 'positions': [0]*7}, {})
         loaded = ops.load(Trajectory(ControlMode.POSITION, tuple(
-            JointCommandSample(position=JointVector([index * .0001]*7)) for index in range(200))))
+            JointCommandSample(position=JointVector([index * .0001]*7)) for index in range(200)), 100))
         recording = ops.start_recording('Stream')
         stream = await ops.start_stream(loaded['id'])
         await asyncio.sleep(.002)  # under one 100 Hz period, so only the first sample goes out
@@ -132,7 +134,7 @@ def test_stream_stops_after_sustained_tracking_divergence(tmp_path):
         ops = Operations(bridge, tmp_path)
         ops.telemetry({'timestamp_s': 1, 'positions': [0]*7}, {})
         loaded = ops.load(Trajectory(ControlMode.POSITION, tuple(
-            JointCommandSample(position=JointVector([0]*7)) for _ in range(100))))
+            JointCommandSample(position=JointVector([0]*7)) for _ in range(100)), 100))
         stream = await ops.start_stream(loaded['id'])
         for timestamp in range(2, 5):
             ops.telemetry({'timestamp_s': timestamp, 'positions': [1]*7}, {})
