@@ -13,8 +13,9 @@ from pathlib import Path
 
 from sawyer_control.types import ControlMode
 
-from .trajectories import (ARM_JOINTS, COMMAND_RATE_HZ, FIELDS, MIN_RATE_HZ, SCHEMA_VERSION,
-                           UNITS, Trajectory)
+from sawyer_control.types import JointCommandSample, JointVector
+
+from .trajectories import ARM_JOINTS, FIELDS, Trajectory
 
 MODE_FIELDS = {ControlMode.POSITION: ('position',), ControlMode.VELOCITY: ('velocity',),
                ControlMode.TRAJECTORY: ('position', 'velocity', 'acceleration'),
@@ -111,7 +112,12 @@ def check_limits(samples):
 
 
 def to_trajectory(rows, mapping, *, mode, units, rate_hz):
-    """Build a trajectory from data rows and a field to seven-column-index mapping."""
+    """Build a trajectory from data rows and a field to seven-column-index mapping.
+
+    `rate_hz` is the rate the rows themselves are at. Use
+    `Trajectory.resampled_to` afterwards to command a table faster than the
+    robot's 100 Hz.
+    """
     mode = ControlMode(mode)
     fields = MODE_FIELDS[mode]
     if set(mapping) != set(fields):
@@ -137,9 +143,10 @@ def to_trajectory(rows, mapping, *, mode, units, rate_hz):
             sample[field] = values
         samples.append(sample)
     check_limits(samples)
-    return Trajectory.from_dict({'schema_version': SCHEMA_VERSION, 'mode': mode.value,
-                                 'rate_hz': float(rate_hz), 'joint_names': list(ARM_JOINTS),
-                                 'units': UNITS, 'samples': samples})
+    built = tuple(JointCommandSample(**{field: JointVector(values)
+                                        for field, values in sample.items()})
+                  for sample in samples)
+    return Trajectory(mode, built, float(rate_hz))
 
 
 def save_profile(path, *, mode, units, rate_hz, mapping, headers=None):

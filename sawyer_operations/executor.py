@@ -8,7 +8,7 @@ import uuid
 
 from sawyer_control.v1 import control_pb2 as pb
 
-from .trajectories import Trajectory
+from .trajectories import COMMAND_RATE_HZ, MIN_RATE_HZ, Trajectory
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,10 @@ class StreamExecutor:
             raise RuntimeError('A stream is already active')
         if any(sample.position is None for sample in trajectory.samples):
             raise ValueError('Streaming requires position data in every sample')
+        if not MIN_RATE_HZ <= trajectory.rate_hz <= COMMAND_RATE_HZ:
+            return self._reject(trajectory_id, 'rate_unsupported',
+                                f'{trajectory.rate_hz:g} Hz is outside the {MIN_RATE_HZ:g}-'
+                                f'{COMMAND_RATE_HZ:g} Hz the robot is commanded at; resample it first')
         state, received_ns, _ = self._state()
         now_mono_ns = time.monotonic_ns()
         if state is None or received_ns is None or (now_mono_ns - received_ns) / 1_000_000_000 > guard.max_state_age_s:

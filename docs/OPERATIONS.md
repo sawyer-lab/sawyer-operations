@@ -93,6 +93,25 @@ running the demo repeatedly replaces the previous copy rather than accumulating
 files. `runs/` is untracked. The service's own copy is untouched and still
 carries every past run.
 
+A recorded table sampled faster than the robot can be commanded is handled by
+the replay demo:
+
+```bash
+/home/fausto/miniconda3/envs/tossing/bin/python /home/fausto/Projects/sawyer-operations/examples/demo_replay_trajectory.py --dry-run
+```
+
+It imports `data/replay_results.csv` at its own 1000 Hz, resamples once and
+explicitly to 100 Hz, and reports each joint's travel against its limit. If the
+arm is not already within the 0.05 rad start guard, it generates a slow quintic
+approach move from the current pose to the replay's first sample, previews that
+separately and streams it only once accepted; the replay is then previewed and
+accepted on its own. Both moves start and end at rest, and `--approach-speed`
+sets the approach's peak joint speed, 0.2 rad/s by default.
+
+`--speed` time-scales the replay, `--rate` chooses another rate, `--no-approach`
+assumes the arm is already in place, and `--dry-run` stops after the report
+without needing a robot or a viewer.
+
 To read the saved run back:
 
 ```bash
@@ -121,14 +140,39 @@ right_j0 through right_j6. Modes map directly to the existing control modes:
 
 Vectors have seven finite numbers. Units are radians, rad/s, Nm and rad/s^2.
 
-**The rate is always explicit and bounded to 1-100 Hz.** `rate_hz` is a
-required argument of `Trajectory` and a required field in the JSON: there is no
-default, because rows carry no rate of their own and a wrong assumption runs
-the motion at the wrong speed. The robot is commanded at
-`COMMAND_RATE_HZ = 100`, which is the maximum; `MIN_RATE_HZ = 1` is the
-minimum. Anything outside that range, including a non-finite value, is rejected
-on construction, so an out-of-range rate cannot reach the executor. Duration is
-sample_count/rate_hz.
+**The rate is always explicit.** `rate_hz` is a required argument of
+`Trajectory` and a required field in the JSON: there is no default, because
+rows carry no rate of their own and a wrong assumption runs the motion at the
+wrong speed. Any finite positive rate is valid data; `duration_s` is
+sample_count/rate_hz and `span_s` is the time of the last sample.
+
+The robot's limits apply where the robot is: **streaming rejects any rate
+outside `MIN_RATE_HZ = 1` to `COMMAND_RATE_HZ = 100`** with reason
+`rate_unsupported`, before publishing a sample, alongside the existing
+start-pose and telemetry guards. A 1 kHz table is therefore importable,
+inspectable and previewable, and is resampled into range deliberately.
+
+### Resampling and time scaling
+
+Trajectories are immutable, so both operations return a new one and leave the
+original alone — which matters because the service shares a trajectory between
+its catalog, a browser preview and a running stream.
+
+```python
+slower = trajectory.resampled_to(100)   # same motion, sampled differently
+half = trajectory.at_speed(.5)          # same samples, played over twice as long
+```
+
+`resampled_to` interpolates linearly, upwards or downwards, and the ratio need
+not be a whole number. The motion keeps its wall-clock span, so velocities and
+accelerations are resampled as they stand and not rescaled. No anti-alias
+filter is applied: sampling below twice the fastest content in a signal aliases
+it, which is why samples are interpolated rather than averaged.
+
+`at_speed` changes how long the motion takes, so it scales velocity by the
+factor and acceleration by its square to stay consistent with the positions.
+It refuses `torque` mode, because effort under time scaling depends on the
+arm's dynamics rather than any single factor.
 
 A trajectory carries no name. It is `Trajectory(mode, samples)`, and the
 ID it is stored under identifies it. The mode is a `ControlMode` member, which
@@ -163,8 +207,9 @@ from `t`, and no rate is assumed.
 python -m sawyer_operations import motion.xlsx -o motion.json
 ```
 
-It asks for the control mode, the units of the angle columns, the sample rate,
-and then one column per joint. `--rate` skips that question and is required
+It asks for the control mode, the units of the angle columns, the rate the
+rows are at, and then one column per joint. A rate above the command rate is
+accepted and noted, to be resampled before streaming. `--rate` skips that question and is required
 with `--auto` or when stdin is not a terminal. Answer with a column number or name; Enter accepts the
 suggestion. Aliases cover `q0`/`dq0`/`ddq0`/`tau0` spellings, `J_1` style
 one-based headers, headerless files (answer with indices), and semicolon files

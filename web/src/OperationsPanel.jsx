@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 
-const COMMAND_RATE_HZ=100, MIN_RATE_HZ=1;  // The robot's command rate is the maximum.
+const MIN_RATE_HZ=1;  // Streaming enforces the robot's 100 Hz; loading does not.
 
 const colors=['#2179ae','#c96042','#57823d','#9763a8','#bb9233','#288a85','#c65f90'];
 async function request(path, value) {
@@ -53,8 +53,8 @@ export function OperationsPanel({workspace,recording,recordingError,viewer,previ
   async function load(file) {
     if(!file)return;
     const csv=file.name.endsWith('.csv'),given=Number(rate);
-    if(csv&&!(given>=MIN_RATE_HZ&&given<=COMMAND_RATE_HZ)){
-      setError(`Set samples/s between ${MIN_RATE_HZ} and ${COMMAND_RATE_HZ} before importing a CSV; it is never assumed.`);
+    if(csv&&!(given>0)){
+      setError('Set the samples/s the CSV rows are at before importing it; it is never assumed.');
       return;
     }
     await act(async()=>{
@@ -70,7 +70,7 @@ export function OperationsPanel({workspace,recording,recordingError,viewer,previ
         <option value="">No preview</option>{workspace?.trajectories?.map(t=><option key={t.id} value={t.id} disabled={!t.previewable}>{t.id.slice(0,8)} · {t.mode} · {t.samples} samples</option>)}
       </select></div>
     <details><summary>CSV import settings · SI units</summary><div className="ops-row"><label>Mode <select value={csvMode} onChange={e=>setCsvMode(e.target.value)}>{['position','trajectory','velocity','torque'].map(v=><option key={v}>{v}</option>)}</select></label>
-      <label>Samples/s <input type="number" min={MIN_RATE_HZ} max={COMMAND_RATE_HZ} value={rate} placeholder="required" onChange={e=>setRate(e.target.value)}/></label><small>Columns: position.right_j0 … position.right_j6; likewise velocity, effort, acceleration.</small></div></details>
+      <label>Samples/s <input type="number" min={MIN_RATE_HZ} value={rate} placeholder="required" onChange={e=>setRate(e.target.value)}/></label><small>Columns: position.right_j0 … position.right_j6; likewise velocity, effort, acceleration.</small></div></details>
     {trajectory && <><div className="ops-row"><span>Blue ghost · preview only</span><button onClick={()=>{setLoopPreview(false);if(index===trajectory.samples.length-1)setIndex(0);setPlaying(!playing);}}>{playing?'Pause preview':'Play preview'}</button>
       <span>{(index/trajectory.rate_hz).toFixed(2)} s / {((trajectory.samples.length-1)/trajectory.rate_hz).toFixed(2)} s</span></div>
       <input className="scrubber" aria-label="Preview time" type="range" min="0" max={trajectory.samples.length-1} value={index} onChange={e=>{setLoopPreview(false);setPlaying(false);setIndex(Number(e.target.value));}}/>

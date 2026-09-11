@@ -44,15 +44,17 @@ def _choose_units():
 
 def _choose_rate():
     while True:
-        answer = _ask(f'Samples per second? [{MIN_RATE_HZ:g}-{COMMAND_RATE_HZ:g}]\n> ')
+        answer = _ask('Samples per second in this table?\n> ')
         try:
             rate = float(answer)
         except ValueError:
-            rate = None
-        if rate is not None and MIN_RATE_HZ <= rate <= COMMAND_RATE_HZ:
+            rate = 0
+        if rate > 0:
+            if rate > COMMAND_RATE_HZ:
+                print(f'  Noted. {rate:g} Hz is above the {COMMAND_RATE_HZ:g} Hz the robot is '
+                      f'commanded at, so resample it before streaming.')
             return rate
-        print(f'Answer with a number between {MIN_RATE_HZ:g} and {COMMAND_RATE_HZ:g}. '
-              f'Nothing is assumed; the rows carry no rate of their own.')
+        print('Answer with a positive number. Nothing is assumed; the rows carry no rate.')
 
 
 def _show_columns(headers, rows):
@@ -159,8 +161,8 @@ def main(argv=None):
     importer.add_argument('--mode', choices=MODES, help='skip the mode prompt')
     importer.add_argument('--units', choices=('deg', 'rad'), help='skip the units prompt')
     importer.add_argument('--rate', type=float,
-                          help=f'samples per second, {MIN_RATE_HZ:g} to {COMMAND_RATE_HZ:g}; '
-                               f'skips the prompt and is required with --auto')
+                          help='samples per second the rows are at; skips the prompt and is '
+                               'required with --auto')
     importer.add_argument('--auto', action='store_true',
                           help='accept every alias-matched column without prompting')
     importer.add_argument('--profile', help='replay a saved mapping instead of prompting')

@@ -40,18 +40,52 @@ def test_validation_and_csv():
         Trajectory.from_dict(stale)
 
 
-def test_rate_is_explicit_and_bounded():
+def test_rate_is_explicit_and_any_positive_value_is_data():
     with pytest.raises(TypeError):
         Trajectory(ControlMode.POSITION, trajectory().samples)
     slow = Trajectory(ControlMode.POSITION, trajectory().samples, 1)
     assert slow.rate_hz == 1.0 and slow.duration_s == 2.0
     assert Trajectory.from_dict(slow.to_dict()).rate_hz == 1.0
-    for bad in (0, .5, 100.1, 250, float('nan')):
-        with pytest.raises(ValueError, match='rate_hz must be between'):
+    fast = Trajectory(ControlMode.POSITION, trajectory().samples, 1000)
+    assert fast.rate_hz == 1000.0  # above the command rate, but still a trajectory
+    for bad in (0, -5, float('nan'), float('inf')):
+        with pytest.raises(ValueError, match='finite positive'):
             Trajectory(ControlMode.POSITION, trajectory().samples, bad)
     without = {key: value for key, value in trajectory().to_dict().items() if key != 'rate_hz'}
     with pytest.raises(ValueError, match='Required trajectory fields'):
         Trajectory.from_dict(without)
+
+
+def test_resampling_and_time_scaling_return_new_trajectories():
+    source = Trajectory(ControlMode.TRAJECTORY, tuple(
+        JointCommandSample(position=JointVector([index * .01]*7), velocity=JointVector([1.]*7),
+                           acceleration=JointVector([2.]*7)) for index in range(101)), 1000)
+    down = source.resampled_to(100)
+    assert (down.rate_hz, len(down.samples)) == (100.0, 11)
+    assert down.span_s == source.span_s                      # the motion keeps its wall clock
+    assert down.samples[-1].position.values == source.samples[-1].position.values
+    assert source.rate_hz == 1000.0 and len(source.samples) == 101   # untouched
+    up = down.resampled_to(300)
+    assert (up.rate_hz, len(up.samples)) == (300.0, 31)      # inserting samples, not only dropping
+    half = source.at_speed(.5)
+    assert half.rate_hz == 500.0 and half.span_s == source.span_s * 2
+    assert half.samples[0].velocity.values[0] == .5          # velocity scales with speed
+    assert half.samples[0].acceleration.values[0] == .5      # acceleration with its square
+    with pytest.raises(ValueError, match='dynamics'):
+        Trajectory(ControlMode.TORQUE, (JointCommandSample(effort=JointVector([1.]*7)),),
+                   100).at_speed(.5)
+
+
+def test_streaming_refuses_a_rate_the_robot_cannot_be_commanded_at(tmp_path):
+    async def run():
+        bridge = api()
+        ops = Operations(bridge, tmp_path)
+        ops.telemetry({'timestamp_s': 1, 'positions': [0]*7}, {})
+        loaded = ops.load(Trajectory(ControlMode.POSITION, trajectory().samples, 1000))
+        result = await ops.start_stream(loaded['id'])
+        assert result['phase'] == 'rejected' and result['reason'] == 'rate_unsupported'
+        bridge.CommandJoints.assert_not_awaited()
+    asyncio.run(run())
 
 
 def test_preview_is_passive_and_catalog_survives_restart(tmp_path):
