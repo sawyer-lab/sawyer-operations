@@ -3,18 +3,17 @@
 import argparse
 import random
 import shutil
-from pathlib import Path
-import subprocess
 import sys
-import time
-from urllib.error import URLError
+from pathlib import Path
 
-from sawyer_control import JointCommandSample, JointVector
-from sawyer_operations import Robot, Trajectory, Workspace
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _demo_support import close_window, ensure_workspace, open_window, save_run  # noqa: E402
+
+from sawyer_control import JointCommandSample, JointVector  # noqa: E402
+from sawyer_operations import Robot, Trajectory  # noqa: E402
 
 
 RATE_HZ = 50.0
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def trajectory_from(q0, joint, delta, duration_s):
@@ -36,41 +35,9 @@ def trajectory_from(q0, joint, delta, duration_s):
     return Trajectory(f'Nearby J{joint} move', 'trajectory', RATE_HZ, tuple(samples))
 
 
-def open_window(browser, query):
-    return subprocess.Popen([sys.executable, '-m', 'sawyer_operations.browser',
-                             '--browser', browser, '--url', f'http://127.0.0.1:8001/?{query}'],
-                            cwd=ROOT, start_new_session=True)
-
-
 def previewer(browser):
-    client = Workspace()
-    try:
-        client.state()
-    except (RuntimeError, URLError):
-        subprocess.Popen([sys.executable, '-m', 'uvicorn',
-                          'sawyer_operations.server:app', '--host', '127.0.0.1', '--port', '8001'], cwd=ROOT,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            try:
-                client.state()
-                break
-            except (RuntimeError, URLError):
-                time.sleep(.25)
-        else:
-            raise RuntimeError('Previewer did not start at http://127.0.0.1:8001')
-    window = open_window(browser, 'preview=1')
-    return client, window
-
-
-def close_preview(window):
-    if window.poll() is None:
-        window.terminate()
-        try:
-            window.wait(timeout=8)
-        except subprocess.TimeoutExpired:
-            window.kill()
+    client = ensure_workspace()
+    return client, open_window(browser, 'preview=1')
 
 
 def main():
@@ -79,6 +46,8 @@ def main():
     parser.add_argument('--distance-rad', type=float, default=.08)
     parser.add_argument('--duration-s', type=float, default=1.0)
     parser.add_argument('--browser', default='auto', help='Browser executable, e.g. chromium or firefox')
+    parser.add_argument('--run-name', default='nearby_trajectory',
+                        help='Base name under runs/; the same name replaces the previous run')
     args = parser.parse_args()
     if args.distance_rad <= 0 or args.duration_s <= 0:
         parser.error('--distance-rad and --duration-s must be positive')
@@ -110,7 +79,7 @@ def main():
                     print('Choose a, r, or q.')
                     continue
                 approved = robot.load_trajectory(trajectory)
-                recording = robot.start_recording('nearby_trajectory')
+                recording = robot.start_recording(args.run_name)
                 run = None
                 try:
                     run = robot.stream(approved)
@@ -122,9 +91,13 @@ def main():
                 finally:
                     recording.stop()
                 print(result['phase'], result['reason'])
+                recording_path, trajectory_path = save_run(
+                    preview, recording.id, trajectory, args.run_name)
+                print(f'Saved {recording_path} and {trajectory_path}')
+                print(f'Read it back with: python {Path(__file__).with_name("demo_read_recording.py")}')
                 return
     finally:
-        close_preview(preview_window)
+        close_window(preview_window)
         if recording is not None and recording.closed:
             open_window(args.browser, f'analysis={recording.id}')
 

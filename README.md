@@ -182,6 +182,15 @@ motion, previews it and waits for you to accept, repeat or quit:
 .venv/bin/python examples/demo_nearby_trajectory.py
 ```
 
+On acceptance it saves that run to `runs/<name>.jsonl` and `runs/<name>.json`,
+always under the same name, so repeated runs replace one another instead of
+piling up. `runs/` is untracked. Read the last run back, with a summary and the
+browser analysis view, using:
+
+```bash
+.venv/bin/python examples/demo_read_recording.py
+```
+
 ## Import trajectories from a spreadsheet
 
 A joint table produced elsewhere — a colleague's `t, q0..q6, dq0..dq6` sheet,

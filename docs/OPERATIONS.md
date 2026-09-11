@@ -79,6 +79,33 @@ smooth trajectory, updates the previewer, and waits for accept, repeat or quit.
 Acceptance starts a recording and streams the samples; quitting or repeating
 publishes nothing.
 
+Recordings themselves always live in the service's storage directory under
+generated IDs. On acceptance the demo additionally copies that run to a stable
+pair of paths:
+
+```
+runs/<run-name>.jsonl   the recording
+runs/<run-name>.json    the trajectory that was streamed
+```
+
+`--run-name` sets that base name and defaults to `nearby_trajectory`, so
+running the demo repeatedly replaces the previous copy rather than accumulating
+files. `runs/` is untracked. The service's own copy is untouched and still
+carries every past run.
+
+To read the saved run back:
+
+```bash
+/home/fausto/miniconda3/envs/tossing/bin/python /home/fausto/Projects/sawyer-operations/examples/demo_read_recording.py
+```
+
+It walks the JSONL once with `read_recording`, prints the header, duration and
+row, observation, command and event counts, summarizes the saved trajectory,
+and opens the same recording in the browser analysis view. It commands nothing
+and needs no robot. Use `--no-viewer` for the summary alone. If the service's
+storage no longer holds that recording, the summary still prints and the
+script says the analysis view cannot open it.
+
 ## Trajectory format
 
 Canonical JSON has `schema_version: 1`, name, mode, rate_hz, joint_names, units
