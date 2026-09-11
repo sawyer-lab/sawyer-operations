@@ -1,7 +1,8 @@
 """Mapping of foreign joint tables onto canonical trajectories.
 
 Columns are mapped explicitly; nothing is derived, resampled or repaired. The
-source trajectory is assumed correct and uniformly sampled at RATE_HZ.
+source trajectory is assumed correct and uniformly sampled at the robot's
+command rate, which is fixed at 100 Hz and is not configurable.
 """
 from __future__ import annotations
 
@@ -12,9 +13,8 @@ from pathlib import Path
 
 from sawyer_control.types import ControlMode
 
-from .trajectories import ARM_JOINTS, FIELDS, UNITS, Trajectory
+from .trajectories import ARM_JOINTS, FIELDS, RATE_HZ, SCHEMA_VERSION, UNITS, Trajectory
 
-RATE_HZ = 100.0
 MODE_FIELDS = {'position': ('position',), 'velocity': ('velocity',),
                'trajectory': ('position', 'velocity', 'acceleration'), 'torque': ('effort',)}
 ANGLE_FIELDS = ('position', 'velocity', 'acceleration')
@@ -108,7 +108,7 @@ def check_limits(samples):
                     f'[{low}, {high}]. Check the declared units and the mapped column.')
 
 
-def to_trajectory(rows, mapping, *, name, mode, units, rate_hz=RATE_HZ):
+def to_trajectory(rows, mapping, *, name, mode, units):
     """Build a trajectory from data rows and a field to seven-column-index mapping."""
     mode = ControlMode(mode).value
     fields = MODE_FIELDS[mode]
@@ -135,9 +135,9 @@ def to_trajectory(rows, mapping, *, name, mode, units, rate_hz=RATE_HZ):
             sample[field] = values
         samples.append(sample)
     check_limits(samples)
-    return Trajectory.from_dict({'schema_version': 1, 'name': name, 'mode': mode,
-                                 'rate_hz': float(rate_hz), 'joint_names': list(ARM_JOINTS),
-                                 'units': UNITS, 'samples': samples})
+    return Trajectory.from_dict({'schema_version': SCHEMA_VERSION, 'name': name, 'mode': mode,
+                                 'joint_names': list(ARM_JOINTS), 'units': UNITS,
+                                 'samples': samples})
 
 
 def save_profile(path, *, mode, units, mapping, headers=None):
@@ -180,7 +180,7 @@ def export(trajectory, path, *, units='rad'):
     fields = [field for field in FIELDS if getattr(trajectory.samples[0], field) is not None]
     rows = [['t'] + [f'{SHORT[field]}{joint}' for field in fields for joint in range(7)]]
     for index, sample in enumerate(trajectory.samples):
-        row = [f'{index / trajectory.rate_hz:.6f}']
+        row = [f'{index / RATE_HZ:.6f}']
         for field in fields:
             for value in getattr(sample, field).values:
                 row.append(f'{math.degrees(value) if units == "deg" and field in ANGLE_FIELDS else value:.9g}')
@@ -207,7 +207,7 @@ def _write_xlsx(path, rows):
     book.save(path)
 
 
-def import_table(path, *, mode, units, mapping=None, name=None, rate_hz=RATE_HZ):
+def import_table(path, *, mode, units, mapping=None, name=None):
     """Non-interactive import for scripts. Columns are matched by alias when not given."""
     headers, rows = read_table(path)
     fields = MODE_FIELDS[ControlMode(mode).value]
@@ -218,8 +218,7 @@ def import_table(path, *, mode, units, mapping=None, name=None, rate_hz=RATE_HZ)
         if any(missing.values()):
             raise ValueError(f'No column matched {missing}; supply mapping explicitly. '
                              f'Headers: {headers}')
-    return to_trajectory(rows, mapping, name=name or Path(path).stem, mode=mode, units=units,
-                         rate_hz=rate_hz)
+    return to_trajectory(rows, mapping, name=name or Path(path).stem, mode=mode, units=units)
 
 
 export_table = export

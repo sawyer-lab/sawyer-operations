@@ -27,8 +27,12 @@ class Operations:
         self._state_received_ns = None
         self._state_sequence = 0
         self.streams = StreamExecutor(api, self._latest_state, self.event, self._record_command)
+        self.unreadable = []
         for path in sorted((self.directory / 'trajectories').glob('*.json')):
-            self.trajectories[path.stem] = Trajectory.load(path)
+            try:
+                self.trajectories[path.stem] = Trajectory.load(path)
+            except (ValueError, OSError) as error:
+                self.unreadable.append({'path': str(path), 'reason': str(error)})
 
     def event(self, kind, **data):
         self.revision += 1

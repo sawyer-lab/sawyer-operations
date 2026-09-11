@@ -201,8 +201,8 @@ for example — becomes a canonical trajectory with:
 ```
 
 It asks for the control mode, the units of the angle columns, and one column
-per joint, suggesting matches by name. Sampling is assumed uniform at 100 Hz
-and any time column is ignored. Nothing is derived, resampled or repaired, and
+per joint, suggesting matches by name. Rows are consumed in order at the
+robot's fixed 100 Hz command rate, and any time column is ignored. Nothing is derived, resampled or repaired, and
 positions outside the arm's joint limits are refused. Reading `.xlsx` needs the
 `xlsx` extra; CSV needs nothing. `python -m sawyer_operations export` writes a
 flat table back out. The full description is in the operations guide below.

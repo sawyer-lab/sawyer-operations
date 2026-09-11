@@ -33,7 +33,7 @@ def test_aliases_map_columns_and_degrees_convert(tmp_path):
         'position': list(range(1, 8)), 'velocity': list(range(8, 15))}
 
 
-def test_time_column_is_ignored_and_rate_is_assumed(tmp_path):
+def test_time_column_is_ignored_and_the_rate_is_fixed(tmp_path):
     text = table(3).replace('0.00', '17.5').replace('0.01', '99.0')
     assert import_table(write(tmp_path, text), mode='position', units='deg').rate_hz == 100.0
 

@@ -13,7 +13,7 @@ from sawyer_operations.server import app
 
 
 def trajectory(mode='position'):
-    return Trajectory('Example', mode, 10, (
+    return Trajectory('Example', mode, (
         JointCommandSample(position=JointVector([0]*7)),
         JointCommandSample(position=JointVector([.1]*7))))
 
@@ -32,9 +32,12 @@ def test_validation_and_csv():
     with pytest.raises(ValueError):
         trajectory('trajectory')
     text = ','.join('position.right_j'+str(i) for i in range(7))+'\n'+','.join(['0']*7)
-    assert Trajectory.from_csv(text, name='CSV', mode='position', rate_hz=10).summary()['samples'] == 1
+    assert Trajectory.from_csv(text, name='CSV', mode='position').summary()['samples'] == 1
     with pytest.raises(ValueError):
-        Trajectory.from_csv('j0,j1\n0,0', name='CSV', mode='position', rate_hz=10)
+        Trajectory.from_csv('j0,j1\n0,0', name='CSV', mode='position')
+    stale = {**trajectory().to_dict(), 'schema_version': 1, 'rate_hz': 50.0}
+    with pytest.raises(ValueError, match='schema_version 2'):
+        Trajectory.from_dict(stale)
 
 
 def test_preview_is_passive_and_catalog_survives_restart(tmp_path):
@@ -47,6 +50,17 @@ def test_preview_is_passive_and_catalog_survives_restart(tmp_path):
     restored = Operations(bridge, tmp_path)
     assert restored.trajectories[loaded['id']].to_dict() == trajectory().to_dict()
     assert restored.selected is None
+
+
+def test_a_trajectory_from_an_older_schema_is_skipped_not_fatal(tmp_path):
+    ops = Operations(api(), tmp_path)
+    loaded = ops.load(trajectory())
+    stale = tmp_path / 'trajectories' / 'stale.json'
+    stale.write_text(json.dumps({**trajectory().to_dict(), 'schema_version': 1, 'rate_hz': 50.0}))
+    restarted = Operations(api(), tmp_path)
+    assert set(restarted.trajectories) == {loaded['id']}
+    assert [row['path'] for row in restarted.unreadable] == [str(stale)]
+    assert 'schema_version 2' in restarted.unreadable[0]['reason']
 
 
 def test_recording_selection_events_and_no_overwrite(tmp_path):
@@ -84,13 +98,11 @@ def test_stream_cancellation_stops_future_publication_and_records_commands(tmp_p
         bridge = api()
         ops = Operations(bridge, tmp_path)
         ops.telemetry({'timestamp_s': 1, 'positions': [0]*7}, {})
-        loaded = ops.load(Trajectory('Slow', 'position', 1, (
-            JointCommandSample(position=JointVector([0]*7)),
-            JointCommandSample(position=JointVector([.01]*7)),
-        )))
+        loaded = ops.load(Trajectory('Long', 'position', tuple(
+            JointCommandSample(position=JointVector([index * .0001]*7)) for index in range(200))))
         recording = ops.start_recording('Stream')
         stream = await ops.start_stream(loaded['id'])
-        await asyncio.sleep(.01)
+        await asyncio.sleep(.002)  # under one 100 Hz period, so only the first sample goes out
         result = await ops.cancel_stream(stream['id'])
         ops.stop_recording()
         assert result['phase'] == 'cancelled'
@@ -107,8 +119,8 @@ def test_stream_stops_after_sustained_tracking_divergence(tmp_path):
         bridge = api()
         ops = Operations(bridge, tmp_path)
         ops.telemetry({'timestamp_s': 1, 'positions': [0]*7}, {})
-        loaded = ops.load(Trajectory('Guarded', 'position', 20, tuple(
-            JointCommandSample(position=JointVector([0]*7)) for _ in range(20))))
+        loaded = ops.load(Trajectory('Guarded', 'position', tuple(
+            JointCommandSample(position=JointVector([0]*7)) for _ in range(100))))
         stream = await ops.start_stream(loaded['id'])
         for timestamp in range(2, 5):
             ops.telemetry({'timestamp_s': timestamp, 'positions': [1]*7}, {})

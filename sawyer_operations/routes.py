@@ -32,7 +32,6 @@ class CSVTrajectory(Input):
     text: str
     name: str
     mode: Literal['position', 'velocity', 'torque', 'trajectory']
-    rate_hz: float
 
 
 @router.get('/workspace')

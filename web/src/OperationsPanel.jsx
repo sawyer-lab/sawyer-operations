@@ -1,5 +1,7 @@
 import React, {useEffect, useState} from 'react';
 
+const RATE_HZ=100;  // The robot is commanded at 100 Hz. This is not configurable.
+
 const colors=['#2179ae','#c96042','#57823d','#9763a8','#bb9233','#288a85','#c65f90'];
 async function request(path, value) {
   const response=await fetch('/api'+path,value===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});
@@ -24,7 +26,7 @@ function Plot({samples,index}) {
 export function OperationsPanel({workspace,recording,recordingError,viewer,previewOnly=false}) {
   const [trajectory,setTrajectory]=useState(null),[index,setIndex]=useState(0),[playing,setPlaying]=useState(false),[loopPreview,setLoopPreview]=useState(false);
   const [error,setError]=useState(''),[files,setFiles]=useState([]),[pending,setPending]=useState(false);
-  const [csvMode,setCsvMode]=useState('position'),[rate,setRate]=useState(100);
+  const [csvMode,setCsvMode]=useState('position');
   const selected=workspace?.selected_trajectory;
   useEffect(()=>{
     let active=true;
@@ -37,7 +39,7 @@ export function OperationsPanel({workspace,recording,recordingError,viewer,previ
     if(!playing || !trajectory)return;
     let start=performance.now(),initial=index;
     const timer=setInterval(()=>{
-      const next=Math.min(trajectory.samples.length-1,initial+Math.floor((performance.now()-start)*trajectory.rate_hz/1000));
+      const next=Math.min(trajectory.samples.length-1,initial+Math.floor((performance.now()-start)*RATE_HZ/1000));
       setIndex(next);
       if(next===trajectory.samples.length-1){
         if(loopPreview){start=performance.now();initial=0;setIndex(0);}
@@ -53,7 +55,7 @@ export function OperationsPanel({workspace,recording,recordingError,viewer,previ
     await act(async()=>{
       const text=await file.text();
       const result=await request(file.name.endsWith('.csv')?'/trajectories/csv':'/trajectories',
-        file.name.endsWith('.csv')?{text,name:file.name,mode:csvMode,rate_hz:Number(rate)}:JSON.parse(text));
+        file.name.endsWith('.csv')?{text,name:file.name,mode:csvMode}:JSON.parse(text));
       if(result.previewable)await request('/preview',{id:result.id});
     });
   }
@@ -63,9 +65,9 @@ export function OperationsPanel({workspace,recording,recordingError,viewer,previ
         <option value="">No preview</option>{workspace?.trajectories?.map(t=><option key={t.id} value={t.id} disabled={!t.previewable}>{t.name} · {t.mode}</option>)}
       </select></div>
     <details><summary>CSV import settings · SI units</summary><div className="ops-row"><label>Mode <select value={csvMode} onChange={e=>setCsvMode(e.target.value)}>{['position','trajectory','velocity','torque'].map(v=><option key={v}>{v}</option>)}</select></label>
-      <label>Samples/s <input type="number" min="0.01" value={rate} onChange={e=>setRate(e.target.value)}/></label><small>Columns: position.right_j0 … position.right_j6; likewise velocity, effort, acceleration.</small></div></details>
+      <small>Sampled at {RATE_HZ} Hz. Columns: position.right_j0 … position.right_j6; likewise velocity, effort, acceleration.</small></div></details>
     {trajectory && <><div className="ops-row"><span>Blue ghost · preview only</span><button onClick={()=>{setLoopPreview(false);if(index===trajectory.samples.length-1)setIndex(0);setPlaying(!playing);}}>{playing?'Pause preview':'Play preview'}</button>
-      <span>{(index/trajectory.rate_hz).toFixed(2)} s / {((trajectory.samples.length-1)/trajectory.rate_hz).toFixed(2)} s</span></div>
+      <span>{(index/RATE_HZ).toFixed(2)} s / {((trajectory.samples.length-1)/RATE_HZ).toFixed(2)} s</span></div>
       <input className="scrubber" aria-label="Preview time" type="range" min="0" max={trajectory.samples.length-1} value={index} onChange={e=>{setLoopPreview(false);setPlaying(false);setIndex(Number(e.target.value));}}/>
       <Plot samples={trajectory.samples} index={index}/></>}
     {!previewOnly && <>

@@ -10,10 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _demo_support import close_window, ensure_workspace, open_window, save_run  # noqa: E402
 
 from sawyer_control import JointCommandSample, JointVector  # noqa: E402
-from sawyer_operations import Robot, Trajectory  # noqa: E402
-
-
-RATE_HZ = 50.0
+from sawyer_operations import RATE_HZ, Robot, Trajectory  # noqa: E402
 
 
 def trajectory_from(q0, joint, delta, duration_s):
@@ -32,7 +29,7 @@ def trajectory_from(q0, joint, delta, duration_s):
         ddq[joint] = delta * acceleration
         samples.append(JointCommandSample(position=JointVector(q), velocity=JointVector(dq),
                                           acceleration=JointVector(ddq)))
-    return Trajectory(f'Nearby J{joint} move', 'trajectory', RATE_HZ, tuple(samples))
+    return Trajectory(f'Nearby J{joint} move', 'trajectory', tuple(samples))
 
 
 def previewer(browser):

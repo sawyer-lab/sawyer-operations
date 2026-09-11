@@ -108,8 +108,8 @@ script says the analysis view cannot open it.
 
 ## Trajectory format
 
-Canonical JSON has `schema_version: 1`, name, mode, rate_hz, joint_names, units
-and samples. See the complete example file above. Joint ordering is exactly
+Canonical JSON has `schema_version: 2`, name, mode, joint_names, units and
+samples. See the complete example file above. Joint ordering is exactly
 right_j0 through right_j6. Modes map directly to the existing control modes:
 
 | Mode | Required fields in every sample |
@@ -120,29 +120,39 @@ right_j0 through right_j6. Modes map directly to the existing control modes:
 | trajectory | position, velocity, acceleration |
 
 Vectors have seven finite numbers. Units are radians, rad/s, Nm and rad/s^2.
-Uniform rate is required. No degree conversion, joint reordering, interpolation
-or timing repair occurs. Position data is required for geometric preview;
+
+**The sample rate is fixed at 100 Hz and is not a parameter.** The robot is
+commanded at 100 Hz, so there is nothing to configure, in the file format, the
+Python API, the HTTP interface, the importer or the browser. `Trajectory` takes
+no rate argument, `rate_hz` exposes the constant, and duration is
+sample_count/100. Schema version 1 carried a `rate_hz` field and is rejected: a
+version 1 file that was not already at 100 Hz describes a different motion and
+must be regenerated, not relabelled. Trajectories the service cannot read are
+skipped at startup and listed, rather than stopping it.
+
+No degree conversion, joint reordering, interpolation or timing repair occurs. Position data is required for geometric preview;
 velocity/torque data can be stored without position samples, but has no
 geometric preview.
 
 CSV columns use `position.right_j0` through `position.right_j6`, and the same
-pattern for velocity, effort and acceleration. Supply mode and rate explicitly
-in `Trajectory.from_csv(text, name=..., mode=..., rate_hz=...)` or the UI import
-settings. The format does not accept arbitrary time columns. Its duration is
-sample_count/rate_hz; the last sample's time is (sample_count-1)/rate_hz.
+pattern for velocity, effort and acceleration. Supply the mode explicitly in
+`Trajectory.from_csv(text, name=..., mode=...)` or the UI import settings. The
+format does not accept arbitrary time columns. The last sample's time is
+(sample_count-1)/100 seconds.
 
 ## Importing tables from other tools
 
 `sawyer-traj` maps a colleague's joint table onto the canonical format. It maps
-columns and converts units; it derives nothing. Sampling is assumed uniform at
-100 Hz, so a time column is listed but ignored. Pass `--rate` for another rate.
+columns and converts units; it derives nothing. Rows are consumed in order at
+100 Hz, so a time column is listed but ignored. A table sampled at any other
+rate describes a different motion and must be regenerated at 100 Hz first.
 
 ```bash
 python -m sawyer_operations import motion.xlsx -o motion.json
 ```
 
 It asks for the control mode, then the units of the angle columns, then one
-column per joint. Answer with a column number or name; Enter accepts the
+column per joint. It never asks for a rate. Answer with a column number or name; Enter accepts the
 suggestion. Aliases cover `q0`/`dq0`/`ddq0`/`tau0` spellings, `J_1` style
 one-based headers, headerless files (answer with indices), and semicolon files
 with comma decimals. Modes ask for the columns they require: position and
@@ -215,7 +225,7 @@ Interactive API documentation is at <http://127.0.0.1:8001/docs>.
 
 - GET /api/workspace: catalog, selection, recording and events.
 - POST /api/trajectories: canonical trajectory JSON.
-- POST /api/trajectories/csv: text, name, mode and rate_hz.
+- POST /api/trajectories/csv: text, name and mode.
 - GET /api/trajectories/{id}: full trajectory.
 - POST /api/preview: `{ "id": "..." }`, or null to clear.
 - POST /api/robot/command: `{ "action": "stop" }`, enable, disable, reset, open or close.

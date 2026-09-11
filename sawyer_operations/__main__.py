@@ -109,10 +109,10 @@ def _import(args):
             names = _show_columns(headers, rows)
             mapping = _map_columns(names, fields, suggested)
     name = args.name or Path(args.table).stem
-    trajectory = to_trajectory(rows, mapping, name=name, mode=mode, units=units, rate_hz=args.rate)
+    trajectory = to_trajectory(rows, mapping, name=name, mode=mode, units=units)
     trajectory.save(args.output)
     conversion = 'deg -> rad' if units == 'deg' else 'rad'
-    print(f'\nRead {len(rows)} rows, {args.rate:g} Hz, {trajectory.duration_s:.2f} s, {conversion}.')
+    print(f'\nRead {len(rows)} rows, {RATE_HZ:g} Hz, {trajectory.duration_s:.2f} s, {conversion}.')
     print(f'Mapped ' + ', '.join(f'{field}={[names[column] for column in columns]}'
                                  for field, columns in mapping.items()))
     print(f'Wrote {args.output}')
@@ -129,7 +129,8 @@ def _export(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog='sawyer-traj', description='Map joint tables to and from canonical trajectories. '
-        f'Sampling is assumed uniform at {RATE_HZ:g} Hz; any time column is ignored.')
+        f'Sampling is uniform at the robot command rate of {RATE_HZ:g} Hz, which is not '
+        f'configurable; any time column is ignored.')
     commands = parser.add_subparsers(dest='command', required=True)
 
     importer = commands.add_parser('import', help='map a csv or xlsx table into trajectory JSON')
@@ -138,7 +139,6 @@ def main(argv=None):
     importer.add_argument('--name', help='trajectory name (default: the table file name)')
     importer.add_argument('--mode', choices=MODES, help='skip the mode prompt')
     importer.add_argument('--units', choices=('deg', 'rad'), help='skip the units prompt')
-    importer.add_argument('--rate', type=float, default=RATE_HZ, help=f'default {RATE_HZ:g}')
     importer.add_argument('--auto', action='store_true',
                           help='accept every alias-matched column without prompting')
     importer.add_argument('--profile', help='replay a saved mapping instead of prompting')
