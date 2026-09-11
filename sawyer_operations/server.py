@@ -14,6 +14,22 @@ from .operations import Operations
 from .routes import router
 
 ROOT = Path(__file__).resolve().parents[1]
+DIST = ROOT / 'web/dist'
+BUILD_HINT = (f'The browser workspace is not built: {DIST} has no index.html. It is generated, '
+              f'not stored in the repository. Run ./sawyer-operations, which builds it, or build '
+              f'it directly with: cd web && npm ci && npm run build')
+
+
+class BuiltWorkspace(StaticFiles):
+    """Serve the built browser workspace, explaining itself when it is absent."""
+
+    async def check_config(self):
+        """Starlette re-checks the directory on the first request; get_response explains it."""
+
+    async def get_response(self, path, scope):
+        if not (DIST / 'index.html').is_file():
+            raise HTTPException(503, BUILD_HINT)
+        return await super().get_response(path, scope)
 
 
 @asynccontextmanager
@@ -22,6 +38,8 @@ async def lifespan(app):
                                   os.environ.get('SAWYER_OPERATIONS_DATA', '~/.local/share/sawyer-operations')) as ops:
         app.state.operations = ops
         app.state.link = ops.link
+        if not (DIST / 'index.html').is_file():
+            print(BUILD_HINT, flush=True)
         yield
 
 
@@ -89,4 +107,4 @@ async def gripper(command: GripperCommand, request: Request):
         raise HTTPException(502, str(exc)) from exc
 
 
-app.mount('/', StaticFiles(directory=ROOT / 'web/dist', html=True, check_dir=False), name='web')
+app.mount('/', BuiltWorkspace(directory=DIST, html=True, check_dir=False), name='web')

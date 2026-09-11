@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
+from sawyer_operations import server
 from sawyer_operations.server import app
 from sawyer_operations import Operations
 
@@ -33,3 +34,15 @@ def test_explicit_commands_and_failure_are_forwarded_without_retry(tmp_path, mon
     app.state.link.api.OpenGripper.assert_awaited_once()
     app.state.link.api.CloseGripper.assert_awaited_once()
     assert client.post('/api/gripper',json={'action':'enable'}).status_code == 422
+
+
+def test_a_missing_browser_build_explains_itself(monkeypatch, tmp_path):
+    """web/dist is generated, not committed; a clone without it must say so."""
+    app.state.link = link()
+    monkeypatch.setattr(server, 'DIST', tmp_path / 'dist')
+    client = TestClient(app, raise_server_exceptions=False)
+    for path in ('/', '/assets/app.js'):
+        response = client.get(path)
+        assert response.status_code == 503
+        assert 'npm run build' in response.json()['detail']
+    assert client.get('/api/health').status_code == 200   # the API keeps working

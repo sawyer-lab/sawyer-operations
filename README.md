@@ -221,6 +221,11 @@ flat table back out. The full description is in the operations guide below.
 
 ## Develop
 
+`web/dist` is generated and deliberately not committed, along with `.venv`,
+`web/node_modules` and anything under `runs/`. A fresh clone has no build:
+`./sawyer-operations` produces one, and until it exists the server answers every
+page request with 503 and the command to run, rather than a blank page.
+
 The Python tests need `pytest`, which the launcher does not install:
 
 ```bash
