@@ -1,8 +1,8 @@
 """Mapping of foreign joint tables onto canonical trajectories.
 
 Columns are mapped explicitly; nothing is derived, resampled or repaired. The
-source trajectory is assumed correct and uniformly sampled at the robot's
-command rate, which is fixed at 100 Hz and is not configurable.
+source trajectory is assumed correct and uniformly sampled. The rate defaults
+to the robot's 100 Hz command rate; Trajectory accepts 1 Hz to 100 Hz.
 """
 from __future__ import annotations
 
@@ -15,8 +15,9 @@ from sawyer_control.types import ControlMode
 
 from .trajectories import ARM_JOINTS, FIELDS, RATE_HZ, SCHEMA_VERSION, UNITS, Trajectory
 
-MODE_FIELDS = {'position': ('position',), 'velocity': ('velocity',),
-               'trajectory': ('position', 'velocity', 'acceleration'), 'torque': ('effort',)}
+MODE_FIELDS = {ControlMode.POSITION: ('position',), ControlMode.VELOCITY: ('velocity',),
+               ControlMode.TRAJECTORY: ('position', 'velocity', 'acceleration'),
+               ControlMode.TORQUE: ('effort',)}
 ANGLE_FIELDS = ('position', 'velocity', 'acceleration')
 ALIASES = {'position': ('q', 'pos', 'position', 'theta', 'j'),
            'velocity': ('dq', 'qd', 'vel', 'velocity', 'omega'),
@@ -108,12 +109,12 @@ def check_limits(samples):
                     f'[{low}, {high}]. Check the declared units and the mapped column.')
 
 
-def to_trajectory(rows, mapping, *, name, mode, units):
+def to_trajectory(rows, mapping, *, mode, units, rate_hz=RATE_HZ):
     """Build a trajectory from data rows and a field to seven-column-index mapping."""
-    mode = ControlMode(mode).value
+    mode = ControlMode(mode)
     fields = MODE_FIELDS[mode]
     if set(mapping) != set(fields):
-        raise ValueError(f'{mode} mode requires exactly these mapped fields: {list(fields)}')
+        raise ValueError(f'{mode.value} mode requires exactly these mapped fields: {list(fields)}')
     if any(len(columns) != 7 or any(column is None for column in columns)
            for columns in mapping.values()):
         raise ValueError('Every mapped field needs seven column indices')
@@ -135,9 +136,9 @@ def to_trajectory(rows, mapping, *, name, mode, units):
             sample[field] = values
         samples.append(sample)
     check_limits(samples)
-    return Trajectory.from_dict({'schema_version': SCHEMA_VERSION, 'name': name, 'mode': mode,
-                                 'joint_names': list(ARM_JOINTS), 'units': UNITS,
-                                 'samples': samples})
+    return Trajectory.from_dict({'schema_version': SCHEMA_VERSION, 'mode': mode.value,
+                                 'rate_hz': float(rate_hz), 'joint_names': list(ARM_JOINTS),
+                                 'units': UNITS, 'samples': samples})
 
 
 def save_profile(path, *, mode, units, mapping, headers=None):
@@ -180,7 +181,7 @@ def export(trajectory, path, *, units='rad'):
     fields = [field for field in FIELDS if getattr(trajectory.samples[0], field) is not None]
     rows = [['t'] + [f'{SHORT[field]}{joint}' for field in fields for joint in range(7)]]
     for index, sample in enumerate(trajectory.samples):
-        row = [f'{index / RATE_HZ:.6f}']
+        row = [f'{index / trajectory.rate_hz:.6f}']
         for field in fields:
             for value in getattr(sample, field).values:
                 row.append(f'{math.degrees(value) if units == "deg" and field in ANGLE_FIELDS else value:.9g}')
@@ -207,10 +208,10 @@ def _write_xlsx(path, rows):
     book.save(path)
 
 
-def import_table(path, *, mode, units, mapping=None, name=None):
+def import_table(path, *, mode, units, mapping=None, rate_hz=RATE_HZ):
     """Non-interactive import for scripts. Columns are matched by alias when not given."""
     headers, rows = read_table(path)
-    fields = MODE_FIELDS[ControlMode(mode).value]
+    fields = MODE_FIELDS[ControlMode(mode)]
     if mapping is None:
         mapping = suggest_mapping(headers, fields)
         missing = {field: [joint for joint, column in enumerate(columns) if column is None]
@@ -218,7 +219,7 @@ def import_table(path, *, mode, units, mapping=None, name=None):
         if any(missing.values()):
             raise ValueError(f'No column matched {missing}; supply mapping explicitly. '
                              f'Headers: {headers}')
-    return to_trajectory(rows, mapping, name=name or Path(path).stem, mode=mode, units=units)
+    return to_trajectory(rows, mapping, mode=mode, units=units, rate_hz=rate_hz)
 
 
 export_table = export

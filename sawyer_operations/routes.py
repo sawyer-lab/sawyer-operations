@@ -3,7 +3,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 from typing import Literal
 
-from .trajectories import Trajectory
+from sawyer_control.types import ControlMode
+
+from .trajectories import RATE_HZ, Trajectory
 
 router = APIRouter(prefix='/api')
 
@@ -30,8 +32,8 @@ class Command(Input):
 
 class CSVTrajectory(Input):
     text: str
-    name: str
-    mode: Literal['position', 'velocity', 'torque', 'trajectory']
+    mode: ControlMode
+    rate_hz: float = RATE_HZ
 
 
 @router.get('/workspace')

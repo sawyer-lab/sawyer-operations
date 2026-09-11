@@ -55,10 +55,13 @@ def report(path, trajectory_path):
         if counter:
             print(f"  {label:<13}" + ', '.join(f'{name} {count}' for name, count in counter.items()))
     if trajectory_path.is_file():
-        trajectory = Trajectory.load(trajectory_path)
-        summary = trajectory.summary()
-        print(f"{trajectory_path}\n  {summary['mode']} mode, {summary['samples']} samples at "
-              f"{summary['rate_hz']:g} Hz, {summary['duration_s']:.2f} s")
+        try:
+            summary = Trajectory.load(trajectory_path).summary()
+        except (ValueError, OSError) as error:
+            print(f'{trajectory_path}\n  cannot be read: {error}')
+        else:
+            print(f"{trajectory_path}\n  {summary['mode']} mode, {summary['samples']} samples at "
+                  f"{summary['rate_hz']:g} Hz, {summary['duration_s']:.2f} s")
     return metadata['id']
 
 

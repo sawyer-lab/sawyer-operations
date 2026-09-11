@@ -60,7 +60,7 @@ def test_headerless_and_semicolon_tables(tmp_path):
     headers, data = read_table(write(tmp_path, rows, 'bare.csv'))
     assert headers is None and len(data[0]) == 8
     trajectory = to_trajectory(data, {'position': list(range(1, 8))},
-                               name='bare', mode='position', units='rad')
+                               mode='position', units='rad')
     assert trajectory.samples[0].position.values == (0.1,) * 7
     european = ';'.join(['0,00'] + ['1,5'] * 7) + '\n'
     _, decimal = read_table(write(tmp_path, european, 'euro.csv'))
@@ -83,7 +83,7 @@ def test_profile_round_trip(tmp_path):
 def test_export_round_trips_through_import(tmp_path):
     trajectory = import_table(write(tmp_path, table(4)), mode='position', units='deg')
     export_table(trajectory, tmp_path / 'out.csv', units='deg')
-    again = import_table(tmp_path / 'out.csv', mode='position', units='deg', name=trajectory.name)
+    again = import_table(tmp_path / 'out.csv', mode='position', units='deg')
     assert again.to_dict() == trajectory.to_dict()
     with pytest.raises(FileExistsError):
         export_table(trajectory, tmp_path / 'out.csv')

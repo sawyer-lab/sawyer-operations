@@ -5,11 +5,13 @@ import argparse
 from pathlib import Path
 import sys
 
+from sawyer_control.types import ControlMode
+
 from .interop import (MODE_FIELDS, RATE_HZ, export, load_profile, normalize, read_table,
                       resolve, save_profile, suggest_mapping, to_trajectory)
-from .trajectories import ARM_JOINTS, Trajectory
+from .trajectories import ARM_JOINTS, MIN_RATE_HZ, Trajectory
 
-MODES = tuple(MODE_FIELDS)
+MODES = tuple(mode.value for mode in MODE_FIELDS)
 
 
 def _ask(prompt, default=None):
@@ -86,7 +88,7 @@ def _import(args):
     headers, rows = read_table(args.table)
     profile = load_profile(args.profile) if args.profile else None
     mode = args.mode or (profile or {}).get('mode') or _choose_mode()
-    fields = MODE_FIELDS[mode]
+    fields = MODE_FIELDS[ControlMode(mode)]
     units = args.units or (profile or {}).get('units')
     if units is None:
         units = _choose_units() if any(field != 'effort' for field in fields) else 'rad'
@@ -108,11 +110,10 @@ def _import(args):
         else:
             names = _show_columns(headers, rows)
             mapping = _map_columns(names, fields, suggested)
-    name = args.name or Path(args.table).stem
-    trajectory = to_trajectory(rows, mapping, name=name, mode=mode, units=units)
+    trajectory = to_trajectory(rows, mapping, mode=mode, units=units, rate_hz=args.rate)
     trajectory.save(args.output)
     conversion = 'deg -> rad' if units == 'deg' else 'rad'
-    print(f'\nRead {len(rows)} rows, {RATE_HZ:g} Hz, {trajectory.duration_s:.2f} s, {conversion}.')
+    print(f'\nRead {len(rows)} rows, {trajectory.rate_hz:g} Hz, {trajectory.duration_s:.2f} s, {conversion}.')
     print(f'Mapped ' + ', '.join(f'{field}={[names[column] for column in columns]}'
                                  for field, columns in mapping.items()))
     print(f'Wrote {args.output}')
@@ -129,16 +130,18 @@ def _export(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog='sawyer-traj', description='Map joint tables to and from canonical trajectories. '
-        f'Sampling is uniform at the robot command rate of {RATE_HZ:g} Hz, which is not '
-        f'configurable; any time column is ignored.')
+        f'Sampling is uniform at {RATE_HZ:g} Hz unless --rate says otherwise; any time '
+        f'column is ignored.')
     commands = parser.add_subparsers(dest='command', required=True)
 
     importer = commands.add_parser('import', help='map a csv or xlsx table into trajectory JSON')
     importer.add_argument('table')
     importer.add_argument('-o', '--output', required=True, help='trajectory JSON to create')
-    importer.add_argument('--name', help='trajectory name (default: the table file name)')
     importer.add_argument('--mode', choices=MODES, help='skip the mode prompt')
     importer.add_argument('--units', choices=('deg', 'rad'), help='skip the units prompt')
+    importer.add_argument('--rate', type=float, default=RATE_HZ,
+                          help=f'samples per second, {MIN_RATE_HZ:g} to {RATE_HZ:g} '
+                               f'(default {RATE_HZ:g})')
     importer.add_argument('--auto', action='store_true',
                           help='accept every alias-matched column without prompting')
     importer.add_argument('--profile', help='replay a saved mapping instead of prompting')

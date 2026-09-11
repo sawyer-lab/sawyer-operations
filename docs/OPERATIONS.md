@@ -108,7 +108,7 @@ script says the analysis view cannot open it.
 
 ## Trajectory format
 
-Canonical JSON has `schema_version: 2`, name, mode, joint_names, units and
+Canonical JSON has `schema_version: 3`, mode, rate_hz, joint_names, units and
 samples. See the complete example file above. Joint ordering is exactly
 right_j0 through right_j6. Modes map directly to the existing control modes:
 
@@ -121,13 +121,22 @@ right_j0 through right_j6. Modes map directly to the existing control modes:
 
 Vectors have seven finite numbers. Units are radians, rad/s, Nm and rad/s^2.
 
-**The sample rate is fixed at 100 Hz and is not a parameter.** The robot is
-commanded at 100 Hz, so there is nothing to configure, in the file format, the
-Python API, the HTTP interface, the importer or the browser. `Trajectory` takes
-no rate argument, `rate_hz` exposes the constant, and duration is
-sample_count/100. Schema version 1 carried a `rate_hz` field and is rejected: a
-version 1 file that was not already at 100 Hz describes a different motion and
-must be regenerated, not relabelled. Trajectories the service cannot read are
+**The rate defaults to the robot's 100 Hz command rate and is bounded to
+1-100 Hz.** `rate_hz` is the last argument of `Trajectory` and may be omitted;
+anything outside that range, including a non-finite value, is rejected on
+construction, so an out-of-range rate cannot reach the executor. It is optional
+in the JSON too and defaults to 100 when absent. Duration is
+sample_count/rate_hz.
+
+A trajectory carries no name. It is `Trajectory(mode, samples)`, and the
+ID it is stored under identifies it. The mode is a `ControlMode` member, which
+the package re-exports:
+
+```python
+from sawyer_operations import ControlMode, Trajectory
+
+trajectory = Trajectory(ControlMode.TRAJECTORY, samples)
+``` Trajectories the service cannot read are
 skipped at startup and listed, rather than stopping it.
 
 No degree conversion, joint reordering, interpolation or timing repair occurs. Position data is required for geometric preview;
@@ -136,7 +145,8 @@ geometric preview.
 
 CSV columns use `position.right_j0` through `position.right_j6`, and the same
 pattern for velocity, effort and acceleration. Supply the mode explicitly in
-`Trajectory.from_csv(text, name=..., mode=...)` or the UI import settings. The
+`Trajectory.from_csv(text, mode=..., rate_hz=...)` or the UI import settings,
+which default to 100 Hz. The
 format does not accept arbitrary time columns. The last sample's time is
 (sample_count-1)/100 seconds.
 
@@ -144,15 +154,16 @@ format does not accept arbitrary time columns. The last sample's time is
 
 `sawyer-traj` maps a colleague's joint table onto the canonical format. It maps
 columns and converts units; it derives nothing. Rows are consumed in order at
-100 Hz, so a time column is listed but ignored. A table sampled at any other
-rate describes a different motion and must be regenerated at 100 Hz first.
+100 Hz unless `--rate` says otherwise, so a time column is listed but ignored.
+A table at another rate needs that rate passed; nothing is inferred from `t`.
 
 ```bash
 python -m sawyer_operations import motion.xlsx -o motion.json
 ```
 
 It asks for the control mode, then the units of the angle columns, then one
-column per joint. It never asks for a rate. Answer with a column number or name; Enter accepts the
+column per joint. It never asks for a rate; pass `--rate` for a table that is
+not at 100 Hz. Answer with a column number or name; Enter accepts the
 suggestion. Aliases cover `q0`/`dq0`/`ddq0`/`tau0` spellings, `J_1` style
 one-based headers, headerless files (answer with indices), and semicolon files
 with comma decimals. Modes ask for the columns they require: position and
@@ -225,7 +236,7 @@ Interactive API documentation is at <http://127.0.0.1:8001/docs>.
 
 - GET /api/workspace: catalog, selection, recording and events.
 - POST /api/trajectories: canonical trajectory JSON.
-- POST /api/trajectories/csv: text, name and mode.
+- POST /api/trajectories/csv: text, mode and an optional rate_hz.
 - GET /api/trajectories/{id}: full trajectory.
 - POST /api/preview: `{ "id": "..." }`, or null to clear.
 - POST /api/robot/command: `{ "action": "stop" }`, enable, disable, reset, open or close.

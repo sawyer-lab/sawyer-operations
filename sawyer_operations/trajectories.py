@@ -11,79 +11,81 @@ from pathlib import Path
 from sawyer_control.types import ControlMode, JointCommandSample, JointVector
 
 ARM_JOINTS = tuple(f'right_j{i}' for i in range(7))
-SCHEMA_VERSION = 2
-RATE_HZ = 100.0  # The robot is commanded at 100 Hz. This is not configurable.
+SCHEMA_VERSION = 3
+RATE_HZ = 100.0      # The robot's command rate, and the default for every trajectory.
+MIN_RATE_HZ = 1.0    # Below this a motion is too sparse to command.
+REQUIRED_FIELDS = {ControlMode.POSITION: ('position',), ControlMode.VELOCITY: ('velocity',),
+                   ControlMode.TORQUE: ('effort',),
+                   ControlMode.TRAJECTORY: ('position', 'velocity', 'acceleration')}
 FIELDS = ('position', 'velocity', 'effort', 'acceleration')
 UNITS = {'position': 'rad', 'velocity': 'rad/s', 'effort': 'Nm', 'acceleration': 'rad/s^2'}
 
 
 @dataclass(frozen=True)
 class Trajectory:
-    name: str
     mode: ControlMode
     samples: tuple[JointCommandSample, ...]
+    rate_hz: float = RATE_HZ
 
     def __post_init__(self):
         object.__setattr__(self, 'mode', ControlMode(self.mode))
-        if not self.name.strip():
-            raise ValueError('A trajectory needs a name')
-        required = {'position': ('position',), 'velocity': ('velocity',),
-                    'torque': ('effort',), 'trajectory': ('position', 'velocity', 'acceleration')}
+        object.__setattr__(self, 'rate_hz', float(self.rate_hz))
+        if not MIN_RATE_HZ <= self.rate_hz <= RATE_HZ:
+            raise ValueError(f'rate_hz must be between {MIN_RATE_HZ:g} and {RATE_HZ:g}; '
+                             f'the robot is commanded at {RATE_HZ:g} Hz')
+        required = REQUIRED_FIELDS
         samples = tuple(self.samples)
         if not samples:
             raise ValueError('A trajectory needs at least one sample')
         object.__setattr__(self, 'samples', samples)
         for sample in samples:
-            if any(getattr(sample, field) is None for field in required[self.mode.value]):
-                raise ValueError(f'{self.mode.value} requires {required[self.mode.value]} in every sample')
-
-    @property
-    def rate_hz(self):
-        """Every trajectory is sampled at the one rate the robot is commanded at."""
-        return RATE_HZ
+            if any(getattr(sample, field) is None for field in required[self.mode]):
+                raise ValueError(f'{self.mode.value} requires {required[self.mode]} in every sample')
 
     @property
     def duration_s(self):
-        return len(self.samples) / RATE_HZ
+        return len(self.samples) / self.rate_hz
 
     def to_dict(self):
-        return {'schema_version': SCHEMA_VERSION, 'name': self.name, 'mode': self.mode.value,
+        return {'schema_version': SCHEMA_VERSION, 'mode': self.mode.value, 'rate_hz': self.rate_hz,
                 'joint_names': list(ARM_JOINTS), 'units': UNITS,
                 'samples': [{field: list(getattr(sample, field).values) for field in FIELDS
                              if getattr(sample, field) is not None}
                             for sample in self.samples]}
 
     def summary(self):
-        return {'name': self.name, 'mode': self.mode.value, 'rate_hz': RATE_HZ,
+        return {'mode': self.mode.value, 'rate_hz': self.rate_hz,
                 'samples': len(self.samples), 'duration_s': self.duration_s,
                 'previewable': all(s.position is not None for s in self.samples)}
 
     @classmethod
     def from_dict(cls, value):
-        allowed = {'schema_version', 'name', 'mode', 'joint_names', 'units', 'samples'}
+        allowed = {'schema_version', 'mode', 'joint_names', 'units', 'samples'}
+        optional = {'rate_hz'}
         if not isinstance(value, dict):
             raise ValueError(f'Required trajectory fields: {sorted(allowed)}')
         if value.get('schema_version') != SCHEMA_VERSION:
-            raise ValueError(f'Expected trajectory schema_version {SCHEMA_VERSION}. Version 1 carried a '
-                             f'rate_hz field; every trajectory is now sampled at {RATE_HZ:g} Hz.')
+            raise ValueError(f'Expected trajectory schema_version {SCHEMA_VERSION}. Earlier versions '
+                             f'carried a name field; a trajectory is identified by the ID it is '
+                             f'stored under.')
         if not allowed.issubset(value):
             raise ValueError(f'Required trajectory fields: {sorted(allowed)}')
-        if set(value) - allowed:
-            raise ValueError(f'Unknown trajectory fields: {set(value) - allowed}')
+        if set(value) - allowed - optional:
+            raise ValueError(f'Unknown trajectory fields: {set(value) - allowed - optional}')
         if tuple(value.get('joint_names', ())) != ARM_JOINTS:
             raise ValueError('joint_names must be right_j0 through right_j6 in order')
         if value.get('units') != UNITS:
             raise ValueError(f'Expected units {UNITS}; no implicit conversion is performed')
         samples = []
-        if not isinstance(value['samples'], list) or not isinstance(value['name'], str):
-            raise ValueError('Expected a string name and a list of samples')
+        if not isinstance(value['samples'], list):
+            raise ValueError('Expected a list of samples')
         for row in value['samples']:
             if not isinstance(row, dict) or any(not isinstance(v, (list, tuple)) for v in row.values()):
                 raise ValueError('Each sample must map field names to seven-element arrays')
             if set(row) - set(FIELDS):
                 raise ValueError(f'Unknown sample fields: {set(row) - set(FIELDS)}')
             samples.append(JointCommandSample(**{key: JointVector(val) for key, val in row.items()}))
-        return cls(value['name'], ControlMode(value['mode']), tuple(samples))
+        return cls(ControlMode(value['mode']), tuple(samples), value.get('rate_hz', RATE_HZ))
 
     @classmethod
     def load(cls, path):
@@ -94,7 +96,7 @@ class Trajectory:
             json.dump(self.to_dict(), stream, allow_nan=False)
 
     @classmethod
-    def from_csv(cls, text, *, name, mode):
+    def from_csv(cls, text, *, mode, rate_hz=RATE_HZ):
         """Columns are position.right_j0, velocity.right_j0, etc.; SI units only."""
         reader = csv.DictReader(io.StringIO(text))
         columns = set(reader.fieldnames or ())
@@ -109,4 +111,4 @@ class Trajectory:
             rows.append(JointCommandSample(**{
                 field: JointVector(float(row[f'{field}.{joint}']) for joint in ARM_JOINTS)
                 for field in fields}))
-        return cls(name, mode, tuple(rows))
+        return cls(mode, tuple(rows), rate_hz)
