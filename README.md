@@ -8,6 +8,59 @@ preview, explicit gripper commands, telemetry recording and offline analysis.
 This project talks only to the local `sawyer-control` bridge over gRPC. It has
 no ROS or MuJoCo runtime dependency, and hardware calls stay in the bridge.
 
+## Quick start
+
+With Node, npm, `python3-venv`, Chromium and Docker already installed:
+
+```bash
+# one-time, if you have never used Docker on this host
+sudo usermod -aG docker $USER      # then log out and back in
+
+# clone both repositories side by side; the layout matters
+git clone git@github.com:sawyer-lab/sawyer-control.git
+git clone git@github.com:sawyer-lab/sawyer-operations.git
+
+# start the robot bridge, with the robot connected
+cd sawyer-control
+./sawyer-control up
+
+# in a second terminal, start the workspace
+cd ../sawyer-operations
+./sawyer-operations
+```
+
+Two commands after cloning. The second one installs everything it needs on
+first run and opens <http://127.0.0.1:8001> in Chromium; later runs are
+immediate. Do **not** run `sawyer-control`'s `scripts/setup_python.sh` — that
+environment is for its own demos, and this project creates its own.
+
+Starting the bridge is optional if you only want to load, preview or import
+trajectories, and the two can be started in either order, because the
+workspace never checks for the bridge. For a clone layout that is not
+side by side, set `SAWYER_CONTROL_DIR` before the first `./sawyer-operations`.
+
+## How the two projects fit together
+
+The `sawyer-control` repository plays two separate roles, and only one of them
+involves a Python environment:
+
+```
+sawyer-control/            one clone, two roles
+├── sawyer-control (bash)  -> starts the Docker bridge      (no Python env)
+├── src/sawyer_control/    -> the gRPC client library ---+
+└── .venv/                 -> for running its own demos --+ both environments
+                                                          | use these same
+sawyer-operations/                                        | files, installed
+└── .venv/                 -> runs this workspace --------+ with pip -e
+```
+
+The bridge is a Docker container; ROS and Intera run inside it and it needs no
+Python environment at all. The same repository also ships the client library
+that every program uses to talk to that bridge, so each Python environment that
+runs such a program installs it. Editable installs record a path rather than
+copying code, so both environments resolve `import sawyer_control` to the same
+source files and pick up edits immediately.
+
 ## Requirements
 
 - Python 3.10 or newer, with `venv` available.
@@ -18,16 +71,12 @@ no ROS or MuJoCo runtime dependency, and hardware calls stay in the bridge.
 
 ## Install
 
-Clone both repositories side by side. The launcher looks for `sawyer-control`
-as a sibling directory, so this layout needs no configuration:
+The quick start above covers the normal case. This section explains what that
+second command actually does, and how to install without it.
 
-```bash
-git clone git@github.com:sawyer-lab/sawyer-control.git
-git clone git@github.com:sawyer-lab/sawyer-operations.git
-cd sawyer-operations
-```
-
-For any other layout, point `SAWYER_CONTROL_DIR` at your clone:
+The launcher looks for `sawyer-control` as a sibling directory, which is why
+the side-by-side layout needs no configuration. For any other layout, point
+`SAWYER_CONTROL_DIR` at your clone:
 
 ```bash
 export SAWYER_CONTROL_DIR=/path/to/sawyer-control
